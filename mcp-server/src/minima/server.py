@@ -112,9 +112,17 @@ async def call_tool(name, arguments: dict) -> list[TextContent]:
         # Return only file metadata
         links = output['result'].get('links', set())
         if links:
-            # Convert set to list and format nicely
+            # Convert set to list and format nicely with Markdown links
             file_list = list(links)
-            file_info = "\n".join([f"📄 {file_path}" for file_path in file_list])
+            file_links = []
+            for file_path in file_list:
+                # Extract filename from path
+                filename = file_path.split('/')[-1]
+                # Create Markdown link: [filename](file:///full/path)
+                markdown_link = f"[{filename}]({file_path})"
+                file_links.append(f"📄 {markdown_link}")
+            
+            file_info = "\n".join(file_links)
             metadata_text = f"Found {len(file_list)} matching files:\n\n{file_info}"
         else:
             metadata_text = "No matching files found for the given context."
@@ -161,8 +169,17 @@ async def get_prompt(name: str, arguments: dict | None) -> GetPromptResult:
     elif name == "minima-files":
         links = output['result'].get('links', set())
         if links:
+            # Convert set to list and format nicely with Markdown links
             file_list = list(links)
-            file_info = "\n".join([f"📄 {file_path}" for file_path in file_list])
+            file_links = []
+            for file_path in file_list:
+                # Extract filename from path
+                filename = file_path.split('/')[-1]
+                # Create Markdown link: [filename](file:///full/path)
+                markdown_link = f"[{filename}]({file_path})"
+                file_links.append(f"📄 {markdown_link}")
+            
+            file_info = "\n".join(file_links)
             metadata_text = f"Found {len(file_list)} matching files:\n\n{file_info}"
         else:
             metadata_text = "No matching files found for the given context."
