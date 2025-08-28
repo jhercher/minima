@@ -42,7 +42,12 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="minima-query",
-            description="Find a context in local files (PDF, CSV, DOCX, MD, TXT)",
+            description="Find a context in local files (PDF, CSV, DOCX, MD, TXT) and return document content",
+            inputSchema=Query.model_json_schema(),
+        ),
+        Tool(
+            name="minima-files",
+            description="Find files matching a context and return only file metadata (paths, titles) without content",
             inputSchema=Query.model_json_schema(),
         )
     ]
@@ -59,12 +64,21 @@ async def list_prompts() -> list[Prompt]:
                     name="context", description="Context to search", required=True
                 )
             ]
+        ),
+        Prompt(
+            name="minima-files",
+            description="Find files matching a context and return file metadata",
+            arguments=[
+                PromptArgument(
+                    name="context", description="Context to search", required=True
+                )
+            ]
         )            
     ]
     
 @server.call_tool()
 async def call_tool(name, arguments: dict) -> list[TextContent]:
-    if name != "minima-query":
+    if name not in ["minima-query", "minima-files"]:
         logging.error(f"Unknown tool: {name}")
         raise ValueError(f"Unknown tool: {name}")
 
@@ -87,11 +101,35 @@ async def call_tool(name, arguments: dict) -> list[TextContent]:
         raise McpError(INTERNAL_ERROR, output["error"])
     
     logging.info(f"Get prompt: {output}")    
-    output = output['result']['output']
-    #links = output['result']['links']
-    result = []
-    result.append(TextContent(type="text", text=output))
-    return result
+    
+    if name == "minima-query":
+        # Return document content (original behavior)
+        output_content = output['result']['output']
+        result = []
+        result.append(TextContent(type="text", text=output_content))
+        return result
+    elif name == "minima-files":
+        # Return only file metadata
+        links = output['result'].get('links', set())
+        if links:
+            # Convert set to list and format nicely with Markdown links
+            file_list = list(links)
+            file_links = []
+            for file_path in file_list:
+                # Extract filename from path
+                filename = file_path.split('/')[-1]
+                # Create Markdown link: [filename](file:///full/path)
+                markdown_link = f"[{filename}]({file_path})"
+                file_links.append(f"📄 {markdown_link}")
+            
+            file_info = "\n".join(file_links)
+            metadata_text = f"Found {len(file_list)} matching files:\n\n{file_info}"
+        else:
+            metadata_text = "No matching files found for the given context."
+        
+        result = []
+        result.append(TextContent(type="text", text=metadata_text))
+        return result
     
 @server.get_prompt()
 async def get_prompt(name: str, arguments: dict | None) -> GetPromptResult:
@@ -106,7 +144,7 @@ async def get_prompt(name: str, arguments: dict | None) -> GetPromptResult:
         error = output["error"]
         logging.error(error)
         return GetPromptResult(
-            description=f"Faild to find a {context}",
+            description=f"Failed to find a {context}",
             messages=[
                 PromptMessage(
                     role="user", 
@@ -116,16 +154,45 @@ async def get_prompt(name: str, arguments: dict | None) -> GetPromptResult:
         )
 
     logging.info(f"Get prompt: {output}")    
-    output = output['result']['output']
-    return GetPromptResult(
-        description=f"Found content for this {context}",
-        messages=[
-            PromptMessage(
-                role="user", 
-                content=TextContent(type="text", text=output)
-            )
-        ]
-    )
+    
+    if name == "minima-query":
+        output_content = output['result']['output']
+        return GetPromptResult(
+            description=f"Found content for this {context}",
+            messages=[
+                PromptMessage(
+                    role="user", 
+                    content=TextContent(type="text", text=output_content)
+                )
+            ]
+        )
+    elif name == "minima-files":
+        links = output['result'].get('links', set())
+        if links:
+            # Convert set to list and format nicely with Markdown links
+            file_list = list(links)
+            file_links = []
+            for file_path in file_list:
+                # Extract filename from path
+                filename = file_path.split('/')[-1]
+                # Create Markdown link: [filename](file:///full/path)
+                markdown_link = f"[{filename}]({file_path})"
+                file_links.append(f"📄 {markdown_link}")
+            
+            file_info = "\n".join(file_links)
+            metadata_text = f"Found {len(file_list)} matching files:\n\n{file_info}"
+        else:
+            metadata_text = "No matching files found for the given context."
+        
+        return GetPromptResult(
+            description=f"Found files matching {context}",
+            messages=[
+                PromptMessage(
+                    role="user", 
+                    content=TextContent(type="text", text=metadata_text)
+                )
+            ]
+        )
 
 async def main():
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
